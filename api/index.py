@@ -6,8 +6,8 @@ import requests
 app = Flask(__name__)
 
 # Thông tin Telegram (Nên đặt trong Environment Variables trên Vercel)
-TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
+TELEGRAM_TOKEN = "8731423127:AAHJC_7KTu5YR96b5H6MTRHD_9_1NCTF1AU"
+TELEGRAM_CHAT_ID = "8731423127"
 
 def send_to_telegram(data):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
