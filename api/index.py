@@ -1,83 +1,76 @@
-from flask import Flask, request, jsonify
-import email
-from email import policy
+import os
+import io
+import mailparser
 import requests
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Thông tin Telegram (Nên đặt trong Environment Variables trên Vercel)
-TELEGRAM_TOKEN = "8731423127:AAHJC_7KTu5YR96b5H6MTRHD_9_1NCTF1AU"
-TELEGRAM_CHAT_ID = "8741135917"
+# Đọc các biến môi trường
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 
-def decode_mime(raw_str):
-    msg = email.message_from_string(raw_str, policy=policy.default)
-    content = {"text": "", "html": ""}
-    
-    for part in msg.walk():
-        ctype = part.get_content_type()
-        cdisp = str(part.get("Content-Disposition"))
-        
-        if "attachment" in cdisp:
-            continue
-            
-        payload = part.get_payload(decode=True)
-        if not payload: continue
-        
-        charset = part.get_content_charset() or 'utf-8'
-        try:
-            decoded = payload.decode(charset, errors='ignore')
-            if ctype == "text/plain":
-                content["text"] += decoded
-            elif ctype == "text/html":
-                content["html"] += decoded
-        except: pass
-            
-    return msg, content
+def send_to_telegram(subject, sender, text_content, html_content):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
 
-def send_to_telegram(data):
-    # 1. Gửi tin nhắn văn bản trước
+    # 1. Gửi tin nhắn văn bản tóm tắt
     msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    preview_text = text_content[:500] + "..." if len(text_content) > 500 else text_content
     summary = (
-        f"<b>📧 EMAIL MỚI</b>\n"
-        f"<b>👤 Từ:</b> {data['from']}\n"
-        f"<b>📝 Tiêu đề:</b> {data['subject']}\n"
-        f"<b>📄 Bản xem trước:</b>\n{data['text'][:300]}..."
+        f"<b>📧 EMAIL MỚI NHẬN</b>\n\n"
+        f"<b>👤 Từ:</b> {sender}\n"
+        f"<b>📝 Tiêu đề:</b> {subject}\n\n"
+        f"<b>📄 Nội dung:</b>\n<i>{preview_text or 'Chỉ có định dạng HTML'}</i>"
     )
-    requests.post(msg_url, json={
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": summary,
-        "parse_mode": "HTML"
-    })
+    requests.post(msg_url, json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML"})
 
-    # 2. Nếu có HTML, gửi nó dưới dạng file đính kèm để xem đầy đủ
-    if data['html']:
+    # 2. Gửi file HTML để xem đầy đủ
+    if html_content:
         doc_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
-        # Tạo file ảo trong bộ nhớ
-        html_file = io.BytesIO(data['html'].encode('utf-8'))
-        html_file.name = "view_email.html"
-        
-        requests.post(doc_url, 
-            data={"chat_id": TELEGRAM_CHAT_ID},
-            files={"document": html_file}
-        )
+        html_file = io.BytesIO(html_content.encode('utf-8'))
+        html_file.name = "email_full_view.html"
+        requests.post(doc_url, data={"chat_id": TELEGRAM_CHAT_ID}, files={"document": html_file})
+
+def send_to_webhook(data):
+    if not WEBHOOK_URL:
+        return
+    try:
+        # Gửi POST request kèm JSON đến Webhook của bạn
+        requests.post(WEBHOOK_URL, json=data, timeout=10)
+    except Exception as e:
+        print(f"Lỗi gửi Webhook: {e}")
 
 @app.route('/api/decode', methods=['POST'])
 def handle_email():
-    payload = request.json
-    raw_str = payload.get('raw')
-    
-    if not raw_str:
-        return jsonify({"error": "No data"}), 400
+    try:
+        payload = request.json
+        raw_str = payload.get('raw')
+        
+        if not raw_str:
+            return jsonify({"status": "error", "message": "No raw data"}), 400
 
-    msg, content = decode_mime(raw_str)
-    
-    email_data = {
-        "from": str(msg['from']),
-        "to": str(msg['to']),
-        "subject": str(msg['subject']),
-        "text": content['text'],
-        "html": content['html']
-    }
+        # Giải mã chuẩn với mail-parser
+        mail = mailparser.parse_from_string(raw_str)
+        
+        email_data = {
+            "from": mail.from_[0][1] if mail.from_ else "Unknown",
+            "to": [t[1] for t in mail.to] if mail.to else [],
+            "subject": mail.subject or "No Subject",
+            "text": mail.text_plain[0] if mail.text_plain else "",
+            "html": mail.text_html[0] if mail.text_html else "",
+            "date": str(mail.date)
+        }
 
-    send_to_telegram(email_data)
-    return jsonify({"status": "sent"}), 200
+        # Thực hiện đồng thời 2 tác vụ: Gửi Telegram và Webhook
+        send_to_telegram(email_data["subject"], email_data["from"], email_data["text"], email_data["html"])
+        send_to_webhook(email_data)
+
+        return jsonify({"status": "success"}), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
