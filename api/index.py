@@ -1,6 +1,5 @@
 import os
 import resend
-import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -28,13 +27,14 @@ def handle_incoming_email():
         # Hàm này sẽ trả về đối tượng chứa 'html', 'text', 'subject', 'from', v.v.
         email_content = resend.Emails.Receiving.get(email_id="37e4414c-5e25-4dbc-a071-43552a4bd53b")
 
-        # 4. Gửi nội dung email đến Webhook khác để xử lý
+        # 4. Xử lý logic của bạn
+        
         subject = email_content.get('subject')
         sender = email_content.get('from')
         receiver = email_content.get('to')
         body_text = email_content.get('text')
         body_html = email_content.get('html')
-
+       
         webhook_url = os.environ.get("FORWARD_WEBHOOK_URL", "https://your-other-webhook.com/endpoint")
         payload_to_forward = {
             "subject": subject,
@@ -50,6 +50,7 @@ def handle_incoming_email():
             print(f"✅ Đã chuyển tiếp đến webhook khác, HTTP Status: {response.status_code}")
         except Exception as webhook_err:
             print(f"⚠️ Lỗi khi chuyển tiếp đến webhook khác: {str(webhook_err)}")
+
 
         return jsonify({
             "status": "success",
