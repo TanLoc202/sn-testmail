@@ -35,7 +35,7 @@ def handle_incoming_email():
         body_text = email_content.get('text')
         body_html = email_content.get('html')
        
-        webhook_url = os.environ.get("FORWARD_WEBHOOK_URL", "https://your-other-webhook.com/endpoint")
+        webhook_url = os.environ.get("FORWARD_WEBHOOK_URL", "/api/sendtelegram")
         payload_to_forward = {
             "subject": subject,
             "sender": sender,
@@ -61,6 +61,23 @@ def handle_incoming_email():
     except Exception as e:
         print(f"❌ Lỗi khi truy vấn chi tiết email: {str(e)}")
         return jsonify({"error": "Failed to fetch email details"}), 500
+
+@app.route('/api/sendtelegram', methods=['POST'])
+def send_to_telegram():
+    data = request.get_json()
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    
+    message = f"📧 New Email Received\nSubject: {data.get('subject')}\nFrom: {data.get('sender')}\nTo: {data.get('receiver')}\n\n{data.get('body_text')}"
+    payload = {
+        "chat_id": chat_id,
+        "text": message
+    }
+
+    
+    # Bạn có thể thêm logic để gửi dữ liệu này đến Telegram hoặc xử lý theo nhu cầu của bạn
+    return jsonify({"status": "received at /api/sendtelegram"}), 200
 
 if __name__ == '__main__':
     # Chạy local để test
