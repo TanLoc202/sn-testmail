@@ -7,7 +7,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # Đọc các biến môi trường
-WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
+WEBHOOK_URL = 'https://trigger.macrodroid.com/8c876195-7a01-488d-bbbe-9530b0ee37b9/email'
 
 def send_to_webhook(data):
     if not WEBHOOK_URL:
