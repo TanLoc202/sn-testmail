@@ -7,31 +7,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # Đọc các biến môi trường
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
-
-def send_to_telegram(subject, sender, text_content, html_content):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-
-    # 1. Gửi tin nhắn văn bản tóm tắt
-    msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    preview_text = text_content[:500] + "..." if len(text_content) > 500 else text_content
-    summary = (
-        f"<b>📧 EMAIL MỚI NHẬN</b>\n\n"
-        f"<b>👤 Từ:</b> {sender}\n"
-        f"<b>📝 Tiêu đề:</b> {subject}\n\n"
-        f"<b>📄 Nội dung:</b>\n<i>{preview_text or 'Chỉ có định dạng HTML'}</i>"
-    )
-    requests.post(msg_url, json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML"})
-
-    # 2. Gửi file HTML để xem đầy đủ
-    if html_content:
-        doc_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
-        html_file = io.BytesIO(html_content.encode('utf-8'))
-        html_file.name = "email_full_view.html"
-        requests.post(doc_url, data={"chat_id": TELEGRAM_CHAT_ID}, files={"document": html_file})
 
 def send_to_webhook(data):
     if not WEBHOOK_URL:
@@ -63,8 +39,6 @@ def handle_email():
             "date": str(mail.date)
         }
 
-        # Thực hiện đồng thời 2 tác vụ: Gửi Telegram và Webhook
-        send_to_telegram(email_data["subject"], email_data["from"], email_data["text"], email_data["html"])
         send_to_webhook(email_data)
 
         return jsonify({"status": "success"}), 200
