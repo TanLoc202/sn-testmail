@@ -1,20 +1,26 @@
 import os
+import requests  # 1. Đã thêm import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Thiết lập API Key (Lấy từ https://resend.com/api-keys)
-resend_api_key = os.environ.get("RESEND_API_KEY")
+# Thiết lập các biến môi trường
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+# URL để chuyển tiếp (Cần có http://... nếu gọi ra ngoài, hoặc gọi trực tiếp hàm nội bộ)
+FORWARD_WEBHOOK_URL = os.environ.get("FORWARD_WEBHOOK_URL", "http://127.0.0.1:5000/api/sendtelegram")
 
 @app.route('/api/email', methods=['POST'])
 def handle_incoming_email():
     # 1. Nhận dữ liệu từ Webhook
     payload = request.get_json()
     
+    # Kiểm tra payload hợp lệ từ Resend
     if not payload or payload.get('type') != 'email.received':
         return jsonify({"status": "ignored", "reason": "Not an email.received event"}), 200
 
-    # 2. Trích xuất email_id từ object 'data'
+    # 2. Trích xuất email_id
     data = payload.get('data', {})
     email_id = data.get('email_id')
     
@@ -23,34 +29,30 @@ def handle_incoming_email():
 
     try:
         # 3. Gọi API Resend để lấy chi tiết nội dung email
+        # Lưu ý: Endpoint cho Inbound là /emails/receiving/
+        resend_res = requests.get(
+            f"https://api.resend.com/emails/receiving/{email_id}", 
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+        )
+        resend_res.raise_for_status() 
+        email_content = resend_res.json()
 
-        response = requests.get(f"https://api.resend.com/emails/receiving/{email_id}", headers={"Authorization": f"Bearer {resend_api_key}"})
-        # Kiểm tra nếu request thành công (status code 200)
-        response.raise_for_status() 
-        email_content = response.json()
-
-        subject = email_content.get('subject')
-        sender = email_content.get('from')
-        receiver = email_content.get('to')
-        body_text = email_content.get('text')
-        body_html = email_content.get('html')
-       
-        webhook_url = os.environ.get("FORWARD_WEBHOOK_URL", "/api/sendtelegram")
+        # 4. Chuẩn bị dữ liệu để chuyển tiếp
         payload_to_forward = {
-            "subject": subject,
-            "sender": sender,
-            "receiver": receiver,
-            "body_text": body_text,
-            "body_html": body_html,
+            "subject": email_content.get('subject', '(No Subject)'),
+            "sender": email_content.get('from'),
+            "receiver": email_content.get('to'),
+            "body_text": email_content.get('text', ''),
+            "body_html": email_content.get('html', ''),
             "email_id": email_id
         }
 
+        # 5. Chuyển tiếp đến endpoint Telegram
         try:
-            response = requests.post(webhook_url, json=payload_to_forward, timeout=10)
-            print(f"✅ Đã chuyển tiếp đến webhook khác, HTTP Status: {response.status_code}")
+            forward_res = requests.post(FORWARD_WEBHOOK_URL, json=payload_to_forward, timeout=10)
+            print(f"✅ Forwarded, Status: {forward_res.status_code}")
         except Exception as webhook_err:
-            print(f"⚠️ Lỗi khi chuyển tiếp đến webhook khác: {str(webhook_err)}")
-
+            print(f"⚠️ Forward Error: {str(webhook_err)}")
 
         return jsonify({
             "status": "success",
@@ -59,26 +61,38 @@ def handle_incoming_email():
         }), 200
 
     except Exception as e:
-        print(f"❌ Lỗi khi truy vấn chi tiết email: {str(e)}")
+        print(f"❌ Resend API Error: {str(e)}")
         return jsonify({"error": "Failed to fetch email details"}), 500
 
 @app.route('/api/sendtelegram', methods=['POST'])
 def send_to_telegram():
     data = request.get_json()
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     
-    message = f"📧 New Email Received\nSubject: {data.get('subject')}\nFrom: {data.get('sender')}\nTo: {data.get('receiver')}\n\n{data.get('body_text')}"
-    payload = {
-        "chat_id": chat_id,
-        "text": message
-    }
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return jsonify({"error": "Telegram config missing"}), 500
 
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    
+    # Giới hạn độ dài nội dung để tránh lỗi Telegram (max 4096 ký tự)
+    body = (data.get('body_text') or "No content")[:1000]
+    
+    message = (
+        f"📧 *New Email Received*\n"
+        f"**Subject:** {data.get('subject')}\n"
+        f"**From:** {data.get('sender')}\n"
+        f"**To:** {data.get('receiver')}\n\n"
+        f"**Content:**\n{body}"
+    )
 
-    # Bạn có thể thêm logic để gửi dữ liệu này đến Telegram hoặc xử lý theo nhu cầu của bạn
-    return jsonify({"status": "received at /api/sendtelegram"}), 200
+    try:
+        tg_res = requests.post(url, json={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "Markdown"
+        })
+        return jsonify({"status": "sent_to_telegram", "tg_status": tg_res.status_code}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Chạy local để test
     app.run(port=5000, debug=True)
