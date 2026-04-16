@@ -1,11 +1,10 @@
 import os
-import resend
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
 # Thiết lập API Key (Lấy từ https://resend.com/api-keys)
-resend.api_key = os.environ.get("RESEND_API_KEY")
+resend_api_key = os.environ.get("RESEND_API_KEY")
 
 @app.route('/api/email', methods=['POST'])
 def handle_incoming_email():
@@ -24,11 +23,12 @@ def handle_incoming_email():
 
     try:
         # 3. Gọi API Resend để lấy chi tiết nội dung email
-        # Hàm này sẽ trả về đối tượng chứa 'html', 'text', 'subject', 'from', v.v.
-        email_content = resend.Emails.Receiving.get(email_id=email_id)
 
-        # 4. Xử lý logic của bạn
-        
+        response = requests.get(f"https://api.resend.com/emails/receiving/{email_id}", headers={"Authorization": f"Bearer {resend_api_key}"})
+        # Kiểm tra nếu request thành công (status code 200)
+        response.raise_for_status() 
+        email_content = response.json()
+
         subject = email_content.get('subject')
         sender = email_content.get('from')
         receiver = email_content.get('to')
