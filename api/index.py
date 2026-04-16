@@ -25,7 +25,7 @@ def handle_incoming_email():
     try:
         # 3. Gọi API Resend để lấy chi tiết nội dung email
         # Hàm này sẽ trả về đối tượng chứa 'html', 'text', 'subject', 'from', v.v.
-        email_content = resend.Emails.Receiving.get(email_id="37e4414c-5e25-4dbc-a071-43552a4bd53b")
+        email_content = resend.Emails.Receiving.get(email_id=email_id)
 
         # 4. Xử lý logic của bạn
         
@@ -75,7 +75,7 @@ def send_to_telegram():
         "text": message
     }
 
-    
+
     # Bạn có thể thêm logic để gửi dữ liệu này đến Telegram hoặc xử lý theo nhu cầu của bạn
     return jsonify({"status": "received at /api/sendtelegram"}), 200
 
